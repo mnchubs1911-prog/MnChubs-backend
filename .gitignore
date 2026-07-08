@@ -1,0 +1,6 @@
+node_modules/
+.env
+dist/
+*.log
+check_db.js
+promote_user.js
