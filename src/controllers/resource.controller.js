@@ -30,6 +30,8 @@ export const createResource = async (req, res, next) => {
       filePublicId: req.file.filename,
       fileSize: req.file.size,
       fileType: req.file.mimetype,
+      mimeType: req.file.mimetype,
+      originalName: originalFileName,
       fileName: originalFileName,
       fileExtension,
       tags: parsedTags,
@@ -317,7 +319,7 @@ export const downloadResource = async (req, res, next) => {
       return `resource-${resource._id}`;
     };
 
-    const rawFileName = resource.fileName || fallbackNameFromUrl();
+    const rawFileName = resource.originalName || resource.fileName || fallbackNameFromUrl();
     const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
     const fileResponse = await fetch(resource.fileUrl);
@@ -325,7 +327,7 @@ export const downloadResource = async (req, res, next) => {
       return next(new AppError('Unable to fetch file from storage', 502));
     }
 
-    const contentType = fileResponse.headers.get('content-type') || resource.fileType || 'application/octet-stream';
+    const contentType = fileResponse.headers.get('content-type') || resource.mimeType || resource.fileType || 'application/octet-stream';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
