@@ -194,7 +194,7 @@ userSchema.methods.generateAuthToken = function () {
   return jwt.sign(
     { id: this._id, role: this.role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '15m' }
+    { expiresIn: process.env.JWT_EXPIRE || '30d' }
   );
 };
 

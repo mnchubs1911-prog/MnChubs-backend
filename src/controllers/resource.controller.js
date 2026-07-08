@@ -1,10 +1,54 @@
 import path from 'path';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import Resource from '../models/Resource.js';
 import User from '../models/User.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import { paginateResults } from '../utils/helpers.js';
 import { createNotification } from '../services/notification.service.js';
+
+const normalizeFileName = (value, fallback = 'download') => {
+  if (!value) return fallback;
+  const safeValue = String(value).replace(/[\\/:*?"<>|]/g, '_').trim();
+  return safeValue || fallback;
+};
+
+const buildDownloadDisposition = (fileName) => {
+  const safeName = normalizeFileName(fileName);
+  const encodedName = encodeURIComponent(safeName).replace(/%20/g, ' ');
+  return `attachment; filename="${safeName.replace(/"/g, "'")}"; filename*=UTF-8''${encodedName}`;
+};
+
+const getFileExtensionFromMimeType = (mimeType) => {
+  const mimeMap = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/plain': 'txt',
+    'application/zip': 'zip',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+  };
+
+  return mimeMap[mimeType] || '';
+};
+
+const getDownloadNameForResource = (resource) => {
+  const explicitName = resource.downloadName || resource.originalName || resource.fileName;
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const fallbackBase = resource.title || 'download';
+  const existingExtension = resource.fileExtension || path.extname(String(fallbackBase)).replace('.', '');
+  const inferredExtension = existingExtension || getFileExtensionFromMimeType(resource.contentType || resource.mimeType || resource.fileType);
+  const baseName = fallbackBase.replace(/\.[^/.]+$/, '');
+
+  return inferredExtension ? `${baseName}.${inferredExtension}` : baseName;
+};
 
 export const createResource = async (req, res, next) => {
   try {
@@ -15,8 +59,11 @@ export const createResource = async (req, res, next) => {
     const { title, description, resourceType, subject, semester, branch, tags } = req.body;
 
     const parsedTags = tags ? (Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim())) : [];
-    const originalFileName = req.file.originalname || 'file';
-    const fileExtension = path.extname(originalFileName).toLowerCase().replace('.', '');
+    const originalFileName = req.file.originalname || req.file.originalName || 'file';
+    const mimeType = req.file.mimetype || 'application/octet-stream';
+    const inferredExtension = path.extname(originalFileName).toLowerCase().replace('.', '') || getFileExtensionFromMimeType(mimeType);
+    const fileExtension = inferredExtension;
+    const downloadName = originalFileName || 'file';
 
     const resource = await Resource.create({
       title,
@@ -29,10 +76,12 @@ export const createResource = async (req, res, next) => {
       fileUrl: req.file.path,
       filePublicId: req.file.filename,
       fileSize: req.file.size,
-      fileType: req.file.mimetype,
-      mimeType: req.file.mimetype,
+      fileType: mimeType,
+      mimeType,
+      contentType: mimeType,
       originalName: originalFileName,
       fileName: originalFileName,
+      downloadName,
       fileExtension,
       tags: parsedTags,
       isApproved: true, // Instantly visible in development mode
@@ -293,30 +342,46 @@ export const downloadResource = async (req, res, next) => {
     const resource = await Resource.findById(id);
     if (!resource) return next(new AppError('Resource not found', 404));
 
-    resource.metrics.downloads += 1;
-    await resource.save();
-
     if (!resource.fileUrl) {
       return next(new AppError('File not available', 404));
     }
 
-    // Dynamic upgrades: ensure URL is HTTPS and triggers download attachment headers
     let downloadUrl = resource.fileUrl;
-    if (downloadUrl.startsWith('http://res.cloudinary.com')) {
-      downloadUrl = downloadUrl.replace('http://', 'https://');
+    if (downloadUrl.startsWith('http://')) {
+      downloadUrl = downloadUrl.replace(/^http:\/\//i, 'https://');
     }
     if (downloadUrl.includes('cloudinary.com') && !downloadUrl.includes('/upload/fl_attachment/')) {
       downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
     }
 
-    if (req.query.json === 'true') {
-      return res.status(200).json({
-        success: true,
-        url: downloadUrl,
-      });
+    const response = await fetch(downloadUrl, { redirect: 'follow' });
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
     }
 
-    return res.redirect(downloadUrl);
+    resource.metrics.downloads += 1;
+    await resource.save();
+
+    const downloadName = getDownloadNameForResource(resource);
+    const contentType = resource.contentType || resource.mimeType || resource.fileType || 'application/octet-stream';
+
+    res.status(200);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', buildDownloadDisposition(downloadName));
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition,Content-Type');
+
+    if (response.headers.get('content-length')) {
+      res.setHeader('Content-Length', response.headers.get('content-length'));
+    }
+
+    if (response.body) {
+      await pipeline(Readable.fromWeb(response.body), res);
+      return;
+    }
+
+    res.end();
   } catch (error) {
     next(error);
   }

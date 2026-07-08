@@ -3,10 +3,18 @@ import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import cloudinary from '../config/cloudinary.js';
 
+const sanitizeBaseName = (value = 'file') => {
+  const cleanValue = String(value).replace(/\.[^/.]+$/, '');
+  return cleanValue
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_') || 'file';
+};
+
 const getFileMetadata = (file) => {
   const originalName = file.originalname || 'file';
   const extension = path.extname(originalName).toLowerCase().replace('.', '');
-  const baseName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+  const baseName = sanitizeBaseName(originalName);
   const publicName = extension ? `${baseName}.${extension}` : baseName;
 
   return {
@@ -18,7 +26,7 @@ const getFileMetadata = (file) => {
 
 // Configure Cloudinary Storage for resource files (PDF, Docs, images)
 const resourceStorage = new CloudinaryStorage({
-  cloudinary: cloudinary,
+  cloudinary,
   params: async (req, file) => {
     const { extension, publicName } = getFileMetadata(file);
     let folder = 'mnchub/others';
@@ -61,7 +69,7 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: resourceStorage,
-  fileFilter: fileFilter,
+  fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10 MB limit
   },

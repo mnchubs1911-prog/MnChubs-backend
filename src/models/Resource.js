@@ -86,8 +86,10 @@ const resourceSchema = new Schema(
     fileSize: { type: Number }, // bytes
     fileType: { type: String },
     mimeType: { type: String },
-    originalName: { type: String },
-    fileName: { type: String },
+    contentType: { type: String },
+    originalName: { type: String, trim: true },
+    fileName: { type: String, trim: true },
+    downloadName: { type: String, trim: true },
     fileExtension: { type: String },
 
     tags: [{ type: String, trim: true, lowercase: true }],
