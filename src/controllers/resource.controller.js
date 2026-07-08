@@ -1,4 +1,5 @@
 import path from 'path';
+import { Readable } from 'stream';
 import Resource from '../models/Resource.js';
 import User from '../models/User.js';
 import { AppError } from '../middlewares/errorHandler.js';
@@ -319,15 +320,23 @@ export const downloadResource = async (req, res, next) => {
     const rawFileName = resource.fileName || fallbackNameFromUrl();
     const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-    const downloadUrl = resource.fileUrl.includes('/upload/')
-      ? resource.fileUrl.replace('/upload/', `/upload/fl_attachment:${safeFileName}/`)
-      : resource.fileUrl;
+    const fileResponse = await fetch(resource.fileUrl);
+    if (!fileResponse.ok) {
+      return next(new AppError('Unable to fetch file from storage', 502));
+    }
 
-    res.status(200).json({
-      success: true,
-      url: downloadUrl,
-      fileName: safeFileName,
-    });
+    const contentType = fileResponse.headers.get('content-type') || resource.fileType || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    if (fileResponse.body) {
+      Readable.fromWeb(fileResponse.body).pipe(res);
+    } else {
+      res.status(200).end();
+    }
   } catch (error) {
     next(error);
   }
