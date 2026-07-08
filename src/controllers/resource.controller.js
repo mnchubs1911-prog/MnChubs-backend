@@ -300,6 +300,14 @@ export const downloadResource = async (req, res, next) => {
       return next(new AppError('File not available', 404));
     }
 
+    // Support frontend requests that want a download URL instead of streaming bytes.
+    if (req.query.json === 'true') {
+      return res.status(200).json({
+        success: true,
+        url: resource.fileUrl,
+      });
+    }
+
     const fallbackNameFromUrl = () => {
       try {
         const parsedUrl = new URL(resource.fileUrl);
