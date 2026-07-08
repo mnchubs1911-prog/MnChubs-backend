@@ -1,6 +1,6 @@
 import path from 'path';
-import { Readable } from 'stream';
-import { pipeline } from 'stream/promises';
+import http from 'http';
+import https from 'https';
 import Resource from '../models/Resource.js';
 import User from '../models/User.js';
 import { AppError } from '../middlewares/errorHandler.js';
@@ -336,6 +336,42 @@ export const downvoteResource = async (req, res, next) => {
   }
 };
 
+const streamRemoteFile = (url, res) => {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https://') ? https : http;
+    const request = client.get(url, (remoteResponse) => {
+      const statusCode = remoteResponse.statusCode || 500;
+
+      if ([301, 302, 303, 307, 308].includes(statusCode) && remoteResponse.headers.location) {
+        remoteResponse.resume();
+        resolve(streamRemoteFile(new URL(remoteResponse.headers.location, url).toString(), res));
+        return;
+      }
+
+      if (statusCode >= 400) {
+        remoteResponse.resume();
+        reject(new Error(`Download failed with status ${statusCode}`));
+        return;
+      }
+
+      res.statusCode = 200;
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition,Content-Type');
+
+      if (remoteResponse.headers['content-length']) {
+        res.setHeader('Content-Length', remoteResponse.headers['content-length']);
+      }
+
+      remoteResponse.pipe(res);
+      remoteResponse.on('end', resolve);
+      remoteResponse.on('error', reject);
+    });
+
+    request.on('error', reject);
+  });
+};
+
 export const downloadResource = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -354,11 +390,6 @@ export const downloadResource = async (req, res, next) => {
       downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
     }
 
-    const response = await fetch(downloadUrl, { redirect: 'follow' });
-    if (!response.ok) {
-      throw new Error(`Download failed with status ${response.status}`);
-    }
-
     resource.metrics.downloads += 1;
     await resource.save();
 
@@ -368,22 +399,15 @@ export const downloadResource = async (req, res, next) => {
     res.status(200);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', buildDownloadDisposition(downloadName));
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition,Content-Type');
 
-    if (response.headers.get('content-length')) {
-      res.setHeader('Content-Length', response.headers.get('content-length'));
-    }
-
-    if (response.body) {
-      await pipeline(Readable.fromWeb(response.body), res);
+    await streamRemoteFile(downloadUrl, res);
+  } catch (error) {
+    if (!res.headersSent) {
+      next(error);
       return;
     }
 
     res.end();
-  } catch (error) {
-    next(error);
   }
 };
 
