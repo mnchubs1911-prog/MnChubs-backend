@@ -300,53 +300,23 @@ export const downloadResource = async (req, res, next) => {
       return next(new AppError('File not available', 404));
     }
 
-    // Support frontend requests that want a download URL instead of streaming bytes.
+    // Dynamic upgrades: ensure URL is HTTPS and triggers download attachment headers
+    let downloadUrl = resource.fileUrl;
+    if (downloadUrl.startsWith('http://res.cloudinary.com')) {
+      downloadUrl = downloadUrl.replace('http://', 'https://');
+    }
+    if (downloadUrl.includes('cloudinary.com') && !downloadUrl.includes('/upload/fl_attachment/')) {
+      downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
+    }
+
     if (req.query.json === 'true') {
       return res.status(200).json({
         success: true,
-        url: resource.fileUrl,
+        url: downloadUrl,
       });
     }
 
-    const fallbackNameFromUrl = () => {
-      try {
-        const parsedUrl = new URL(resource.fileUrl);
-        const lastSegment = parsedUrl.pathname.split('/').pop() || '';
-        if (lastSegment.includes('.')) return lastSegment;
-      } catch {
-        const lastSegment = resource.fileUrl.split('/').pop() || '';
-        if (lastSegment.includes('.')) return lastSegment;
-      }
-      if (resource.fileExtension) {
-        return `resource-${resource._id}.${resource.fileExtension}`;
-      }
-      if (resource.fileType) {
-        const mimeParts = resource.fileType.split('/');
-        return `resource-${resource._id}.${mimeParts[1] || 'bin'}`;
-      }
-      return `resource-${resource._id}`;
-    };
-
-    const rawFileName = resource.originalName || resource.fileName || fallbackNameFromUrl();
-    const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-
-    const fileResponse = await fetch(resource.fileUrl);
-    if (!fileResponse.ok) {
-      return next(new AppError('Unable to fetch file from storage', 502));
-    }
-
-    const contentType = fileResponse.headers.get('content-type') || resource.mimeType || resource.fileType || 'application/octet-stream';
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-
-    if (fileResponse.body) {
-      Readable.fromWeb(fileResponse.body).pipe(res);
-    } else {
-      res.status(200).end();
-    }
+    return res.redirect(downloadUrl);
   } catch (error) {
     next(error);
   }
