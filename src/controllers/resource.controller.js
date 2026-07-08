@@ -320,7 +320,7 @@ export const downloadResource = async (req, res, next) => {
     const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
     const downloadUrl = resource.fileUrl.includes('/upload/')
-      ? resource.fileUrl.replace('/upload/', `/upload/fl_attachment:${encodeURIComponent(safeFileName)}/`)
+      ? resource.fileUrl.replace('/upload/', `/upload/fl_attachment:${safeFileName}/`)
       : resource.fileUrl;
 
     res.status(200).json({
