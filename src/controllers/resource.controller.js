@@ -299,21 +299,16 @@ export const downloadResource = async (req, res, next) => {
 
     const safeFileName = (resource.fileName || `resource-${resource._id}${resource.fileExtension ? `.${resource.fileExtension}` : ''}`)
       .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const contentType = resource.fileType || 'application/octet-stream';
 
-    const fileResponse = await fetch(resource.fileUrl);
-    if (!fileResponse.ok) {
-      return next(new AppError('Unable to fetch file from storage', 502));
-    }
+    const downloadUrl = resource.fileUrl.includes('/upload/')
+      ? resource.fileUrl.replace('/upload/', `/upload/fl_attachment:${encodeURIComponent(safeFileName)}/`)
+      : resource.fileUrl;
 
-    const arrayBuffer = await fileResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.status(200).send(buffer);
+    res.status(200).json({
+      success: true,
+      url: downloadUrl,
+      fileName: safeFileName,
+    });
   } catch (error) {
     next(error);
   }
