@@ -297,8 +297,27 @@ export const downloadResource = async (req, res, next) => {
       return next(new AppError('File not available', 404));
     }
 
-    const safeFileName = (resource.fileName || `resource-${resource._id}${resource.fileExtension ? `.${resource.fileExtension}` : ''}`)
-      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fallbackNameFromUrl = () => {
+      try {
+        const parsedUrl = new URL(resource.fileUrl);
+        const lastSegment = parsedUrl.pathname.split('/').pop() || '';
+        if (lastSegment.includes('.')) return lastSegment;
+      } catch {
+        const lastSegment = resource.fileUrl.split('/').pop() || '';
+        if (lastSegment.includes('.')) return lastSegment;
+      }
+      if (resource.fileExtension) {
+        return `resource-${resource._id}.${resource.fileExtension}`;
+      }
+      if (resource.fileType) {
+        const mimeParts = resource.fileType.split('/');
+        return `resource-${resource._id}.${mimeParts[1] || 'bin'}`;
+      }
+      return `resource-${resource._id}`;
+    };
+
+    const rawFileName = resource.fileName || fallbackNameFromUrl();
+    const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
     const downloadUrl = resource.fileUrl.includes('/upload/')
       ? resource.fileUrl.replace('/upload/', `/upload/fl_attachment:${encodeURIComponent(safeFileName)}/`)
