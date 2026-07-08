@@ -1,14 +1,28 @@
+import path from 'path';
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import cloudinary from '../config/cloudinary.js';
+
+const getFileMetadata = (file) => {
+  const originalName = file.originalname || 'file';
+  const extension = path.extname(originalName).toLowerCase().replace('.', '');
+  const baseName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+  const publicName = extension ? `${baseName}.${extension}` : baseName;
+
+  return {
+    extension,
+    publicName,
+    originalName,
+  };
+};
 
 // Configure Cloudinary Storage for resource files (PDF, Docs, images)
 const resourceStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
+    const { extension, publicName } = getFileMetadata(file);
     let folder = 'mnchub/others';
-    let allowedFormats = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip', 'png', 'jpg', 'jpeg'];
-    
+
     if (file.mimetype.startsWith('image/')) {
       folder = 'mnchub/images';
     } else if (file.mimetype === 'application/pdf') {
@@ -16,9 +30,10 @@ const resourceStorage = new CloudinaryStorage({
     }
 
     return {
-      folder: folder,
-      resource_type: file.mimetype.startsWith('image/') ? 'image' : 'raw', // Use raw for non-image files like PDF
-      public_id: `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      folder,
+      resource_type: file.mimetype.startsWith('image/') ? 'image' : 'raw',
+      format: extension || undefined,
+      public_id: `${Date.now()}-${publicName}`,
     };
   },
 });

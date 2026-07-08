@@ -1,3 +1,4 @@
+import path from 'path';
 import Resource from '../models/Resource.js';
 import User from '../models/User.js';
 import { AppError } from '../middlewares/errorHandler.js';
@@ -13,6 +14,8 @@ export const createResource = async (req, res, next) => {
     const { title, description, resourceType, subject, semester, branch, tags } = req.body;
 
     const parsedTags = tags ? (Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim())) : [];
+    const originalFileName = req.file.originalname || 'file';
+    const fileExtension = path.extname(originalFileName).toLowerCase().replace('.', '');
 
     const resource = await Resource.create({
       title,
@@ -26,6 +29,8 @@ export const createResource = async (req, res, next) => {
       filePublicId: req.file.filename,
       fileSize: req.file.size,
       fileType: req.file.mimetype,
+      fileName: originalFileName,
+      fileExtension,
       tags: parsedTags,
       isApproved: true, // Instantly visible in development mode
     });
@@ -288,10 +293,27 @@ export const downloadResource = async (req, res, next) => {
     resource.metrics.downloads += 1;
     await resource.save();
 
-    res.status(200).json({
-      success: true,
-      url: resource.fileUrl,
-    });
+    if (!resource.fileUrl) {
+      return next(new AppError('File not available', 404));
+    }
+
+    const safeFileName = (resource.fileName || `resource-${resource._id}${resource.fileExtension ? `.${resource.fileExtension}` : ''}`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const contentType = resource.fileType || 'application/octet-stream';
+
+    const fileResponse = await fetch(resource.fileUrl);
+    if (!fileResponse.ok) {
+      return next(new AppError('Unable to fetch file from storage', 502));
+    }
+
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.status(200).send(buffer);
   } catch (error) {
     next(error);
   }

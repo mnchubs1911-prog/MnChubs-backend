@@ -85,6 +85,8 @@ const resourceSchema = new Schema(
     previewUrl: { type: String },
     fileSize: { type: Number }, // bytes
     fileType: { type: String },
+    fileName: { type: String },
+    fileExtension: { type: String },
 
     tags: [{ type: String, trim: true, lowercase: true }],
 
