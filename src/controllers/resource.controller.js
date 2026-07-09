@@ -414,7 +414,12 @@ export const downloadResource = async (req, res, next) => {
 
     // Add fl_attachment with encoded filename so Cloudinary sets Content-Disposition
     // This is the fallback for large files that can't be proxied through Vercel
-    const safeCloudinaryName = encodeURIComponent(downloadName).replace(/%2F/g, '/');
+    // Cloudinary REQUIRES dots in fl_attachment filenames to be encoded as %2E.
+    // An unencoded dot (e.g. fl_attachment:Notes.pdf) causes HTTP 400 because
+    // Cloudinary treats the dot as a format/extension separator in the URL path.
+    const safeCloudinaryName = encodeURIComponent(downloadName)
+      .replace(/%2F/g, '/')   // keep folder slashes literal
+      .replace(/\./g, '%2E'); // encode dots — critical for Cloudinary to accept the URL
     let cloudinaryDownloadUrl = fileUrl;
     if (fileUrl.includes('cloudinary.com') && fileUrl.includes('/upload/')) {
       // Remove any existing transformation flags first
