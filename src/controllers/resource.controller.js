@@ -46,12 +46,31 @@ const getDownloadName = (resource) => {
   if (explicit) return explicit;
 
   const base = resource.title || 'download';
-  const ext =
-    resource.fileExtension ||
-    mimeToExt[resource.mimeType] ||
-    mimeToExt[resource.fileType] ||
-    mimeToExt[resource.contentType] ||
-    '';
+  
+  // Extract extension from fileUrl path as the most reliable fallback
+  let ext = '';
+  if (resource.fileUrl) {
+    try {
+      const parsedUrl = new URL(resource.fileUrl);
+      const urlExt = path.extname(parsedUrl.pathname).replace('.', '').toLowerCase();
+      if (urlExt && urlExt.length <= 5 && /^[a-z0-9]+$/.test(urlExt)) {
+        ext = urlExt;
+      }
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Fallback to schema fields if URL extraction failed
+  if (!ext) {
+    ext =
+      resource.fileExtension ||
+      mimeToExt[resource.mimeType] ||
+      mimeToExt[resource.fileType] ||
+      mimeToExt[resource.contentType] ||
+      '';
+  }
+
   const cleanBase = base.replace(/\.[^/.]+$/, '');
   return ext ? `${cleanBase}.${ext}` : cleanBase;
 };
