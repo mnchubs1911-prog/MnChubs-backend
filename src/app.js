@@ -1,3 +1,13 @@
+/**
+ * app.js — Vercel-compatible Express entry point.
+ *
+ * Key rules for Vercel serverless:
+ *  1. Do NOT call app.listen() here — Vercel manages the HTTP lifecycle.
+ *  2. Do NOT import socket.io here — it is incompatible with serverless.
+ *  3. Export the app as `export default app` so @vercel/node wraps it.
+ *  4. DB connection is done per-request via middleware (readyState caching).
+ */
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -27,23 +37,21 @@ import debugRoutes from './routes/debug.routes.js';
 
 const app = express();
 
-// Security Headers — disable COOP for Firebase auth popups
+// ── Security Headers — disable COOP so Firebase auth popups work ──────────────
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: 'unsafe-none' },
 }));
-
-// Explicit COOP header removal for auth flows
 app.use((req, res, next) => {
   res.removeHeader('Cross-Origin-Opener-Policy');
   next();
 });
 
-// Logging
+// ── Request Logging (dev only) ────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// CORS — allow localhost + *.vercel.app + configured frontend URL
+// ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -56,10 +64,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (
-        origin.endsWith('.vercel.app') ||
-        allowedOrigins.includes(origin)
-      ) {
+      if (origin.endsWith('.vercel.app') || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error(`CORS: ${origin} not allowed`));
@@ -70,12 +75,12 @@ app.use(
   })
 );
 
-// Parsers
+// ── Body Parsers ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Rate Limiting
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'production' ? 300 : 2000,
@@ -85,8 +90,9 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// ── Serverless DB Middleware ─────────────────────────────────────────────────
-// Connects to MongoDB before every request (safe — uses readyState caching)
+// ── Serverless DB Middleware ──────────────────────────────────────────────────
+// Each Vercel invocation awaits the DB before proceeding (readyState caching
+// means only the first cold-start pays the connection cost).
 app.use(async (req, res, next) => {
   try {
     await connectDB();
@@ -97,7 +103,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Mount API Routes
+// ── API Routes ────────────────────────────────────────────────────────────────
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/resources', resourceRoutes);
@@ -114,27 +120,32 @@ app.use('/api/v1/study-groups', studyGroupRoutes);
 app.use('/api/v1/stats', statsRoutes);
 app.use('/api/v1/debug', debugRoutes);
 
-// Health Check
+// ── Health Check ──────────────────────────────────────────────────────────────
 app.get('/api/v1/health', (req, res) => {
-  res.status(200).json({ status: 'success', message: 'Server is healthy', timestamp: new Date() });
+  res.status(200).json({
+    status: 'success',
+    message: 'Server is healthy',
+    timestamp: new Date(),
+    env: process.env.NODE_ENV,
+  });
 });
 
-// Root Route
+// ── Root Route ────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.status(200).json({
     status: 'success',
     message: 'MnCHub backend is running. Use /api/v1/* for API access.',
     health: '/api/v1/health',
-    uptime: process.uptime(),
   });
 });
 
-// 404
+// ── 404 Handler ───────────────────────────────────────────────────────────────
 app.all('*', (req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
 });
 
-// Global Error Handler
+// ── Global Error Handler ──────────────────────────────────────────────────────
 app.use(errorHandler);
 
+// Export for Vercel (@vercel/node wraps this — do NOT call app.listen here)
 export default app;
