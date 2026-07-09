@@ -6,18 +6,35 @@ import admin from 'firebase-admin';
 
 let firebaseApp;
 
-const projectId = process.env.FIREBASE_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-// The private key in .env has literal \n sequences — convert them to real newlines
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-  : undefined;
+const rawProjectId = process.env.FIREBASE_PROJECT_ID;
+let rawClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+let rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+const projectId = rawProjectId && String(rawProjectId).trim();
+if (rawClientEmail) rawClientEmail = String(rawClientEmail).trim();
+if (rawPrivateKey) rawPrivateKey = String(rawPrivateKey).trim();
+
+// Remove surrounding quotes if someone copied the JSON value with quotes
+if (rawClientEmail && /^\s*".*"\s*$/.test(rawClientEmail)) {
+  rawClientEmail = rawClientEmail.replace(/^\s*"(.*)"\s*$/, '$1');
+}
+// Private key often contains literal \n; convert to real newlines and strip surrounding quotes
+let privateKey = undefined;
+if (rawPrivateKey) {
+  if (/^\s*".*"\s*$/.test(rawPrivateKey)) {
+    rawPrivateKey = rawPrivateKey.replace(/^\s*"(.*)"\s*$/, '$1');
+  }
+  privateKey = rawPrivateKey.replace(/\\n/g, '\n');
+}
+const clientEmail = rawClientEmail;
 
 try {
   if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      `Missing Firebase env vars: ${!projectId ? 'FIREBASE_PROJECT_ID ' : ''}${!clientEmail ? 'FIREBASE_CLIENT_EMAIL ' : ''}${!privateKey ? 'FIREBASE_PRIVATE_KEY' : ''}`
-    );
+    const missing = [];
+    if (!projectId) missing.push('FIREBASE_PROJECT_ID');
+    if (!clientEmail) missing.push('FIREBASE_CLIENT_EMAIL');
+    if (!privateKey) missing.push('FIREBASE_PRIVATE_KEY');
+    throw new Error(`Missing Firebase env vars: ${missing.join(', ')}`);
   }
 
   firebaseApp = admin.initializeApp({

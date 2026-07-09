@@ -97,7 +97,14 @@ export const googleLogin = async (req, res, next) => {
       return next(new AppError('Google sign-in token is required', 400));
     }
 
-    const decodedToken = await verifyFirebaseToken(idToken);
+    let decodedToken;
+    try {
+      decodedToken = await verifyFirebaseToken(idToken);
+    } catch (err) {
+      console.error('Firebase token verification failed:', err?.message || err);
+      return next(new AppError('Invalid Google sign-in token or Firebase not configured. Check server logs.', 401));
+    }
+
     const email = decodedToken.email;
     const name = decodedToken.name || decodedToken.email?.split('@')[0] || 'Google User';
     const googleId = decodedToken.uid;
