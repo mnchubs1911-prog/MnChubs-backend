@@ -23,7 +23,7 @@ const normalizeFileName = (value, fallback = 'download') => {
 /** Build a valid RFC 5987 Content-Disposition header value. */
 const buildDownloadDisposition = (fileName) => {
   const safeName = normalizeFileName(fileName);
-  const encodedName = encodeURIComponent(safeName).replace(/%20/g, ' ');
+  const encodedName = encodeURIComponent(safeName); // keep percent-encoded (including %20 for spaces)
   return `attachment; filename="${safeName.replace(/"/g, "'")}"; filename*=UTF-8''${encodedName}`;
 };
 
@@ -412,17 +412,20 @@ export const downloadResource = async (req, res, next) => {
     // Build safe Cloudinary URL
     let fileUrl = toHttps(resource.fileUrl);
 
+    // Check if it is a raw upload (raw resource type does not support transformations like fl_attachment)
+    const isRaw = fileUrl.includes('/raw/upload/');
+
     // Add fl_attachment with encoded filename so Cloudinary sets Content-Disposition
-    // This is the fallback for large files that can't be proxied through Vercel
+    // This is the fallback for large files (>4.5MB) that can't be proxied through Vercel.
     // Cloudinary REQUIRES dots in fl_attachment filenames to be encoded as %2E.
-    // An unencoded dot (e.g. fl_attachment:Notes.pdf) causes HTTP 400 because
-    // Cloudinary treats the dot as a format/extension separator in the URL path.
+    // An unencoded dot (e.g. fl_attachment:Notes.pdf) causes HTTP 400.
     const safeCloudinaryName = encodeURIComponent(downloadName)
       .replace(/%2F/g, '/')   // keep folder slashes literal
       .replace(/\./g, '%2E'); // encode dots — critical for Cloudinary to accept the URL
+
     let cloudinaryDownloadUrl = fileUrl;
-    if (fileUrl.includes('cloudinary.com') && fileUrl.includes('/upload/')) {
-      // Remove any existing transformation flags first
+    if (fileUrl.includes('cloudinary.com') && fileUrl.includes('/upload/') && !isRaw) {
+      // Remove any existing transformation flags first and insert fl_attachment
       cloudinaryDownloadUrl = fileUrl.replace(
         '/upload/',
         `/upload/fl_attachment:${safeCloudinaryName}/`
@@ -433,7 +436,7 @@ export const downloadResource = async (req, res, next) => {
     if (req.query.json === 'true') {
       return res.status(200).json({
         success: true,
-        url: cloudinaryDownloadUrl,  // Use the Cloudinary URL with fl_attachment
+        url: cloudinaryDownloadUrl,  // Use the Cloudinary URL with fl_attachment (or raw fallback)
         filename: downloadName,
         mimeType: contentType,
       });
