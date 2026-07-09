@@ -23,6 +23,7 @@ import eventRoutes from './routes/event.routes.js';
 import mentorshipRoutes from './routes/mentorship.routes.js';
 import studyGroupRoutes from './routes/studygroup.routes.js';
 import statsRoutes from './routes/stats.routes.js';
+import debugRoutes from './routes/debug.routes.js';
 
 const app = express();
 
@@ -111,6 +112,7 @@ app.use('/api/v1/events', eventRoutes);
 app.use('/api/v1/mentorship', mentorshipRoutes);
 app.use('/api/v1/study-groups', studyGroupRoutes);
 app.use('/api/v1/stats', statsRoutes);
+app.use('/api/v1/debug', debugRoutes);
 
 // Health Check
 app.get('/api/v1/health', (req, res) => {
