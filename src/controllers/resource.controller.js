@@ -342,9 +342,11 @@ const streamRemoteFile = (url, res) => {
     const request = client.get(url, (remoteResponse) => {
       const statusCode = remoteResponse.statusCode || 500;
 
+      // Follow redirects
       if ([301, 302, 303, 307, 308].includes(statusCode) && remoteResponse.headers.location) {
+        const nextUrl = new URL(remoteResponse.headers.location, url).toString();
         remoteResponse.resume();
-        resolve(streamRemoteFile(new URL(remoteResponse.headers.location, url).toString(), res));
+        resolve(streamRemoteFile(nextUrl, res));
         return;
       }
 
@@ -354,21 +356,25 @@ const streamRemoteFile = (url, res) => {
         return;
       }
 
+      // If remote provides content-type/length, propagate them
+      if (remoteResponse.headers['content-type'] && !res.getHeader('Content-Type')) {
+        res.setHeader('Content-Type', remoteResponse.headers['content-type']);
+      }
+      if (remoteResponse.headers['content-length'] && !res.getHeader('Content-Length')) {
+        res.setHeader('Content-Length', remoteResponse.headers['content-length']);
+      }
+
       res.statusCode = 200;
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition,Content-Type');
 
-      if (remoteResponse.headers['content-length']) {
-        res.setHeader('Content-Length', remoteResponse.headers['content-length']);
-      }
-
       remoteResponse.pipe(res);
       remoteResponse.on('end', resolve);
-      remoteResponse.on('error', reject);
+      remoteResponse.on('error', (err) => reject(err));
     });
 
-    request.on('error', reject);
+    request.on('error', (err) => reject(err));
   });
 };
 
@@ -418,25 +424,34 @@ export const getTopResources = async (req, res, next) => {
       .limit(10)
       .populate('uploader', 'name avatar');
 
-    res.status(200).json({
+    // Set headers the client expects. The stream function may override Content-Type/Length
+    if (!res.headersSent) {
+      res.status(200);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', buildDownloadDisposition(downloadName));
+    }
+
+    try {
+      await streamRemoteFile(downloadUrl, res);
+    } catch (streamErr) {
+      // Log details for debugging new-upload failures
+      console.error('Download stream error for resource', id, { downloadUrl, downloadName, contentType, err: streamErr?.message });
+      console.error(streamErr);
+
+      if (!res.headersSent) {
+        return next(streamErr);
+      }
+
+      // If headers already sent, there's no clean way to send JSON — just end and log
+      try {
+        res.end();
+      } catch (e) {
+        console.error('Error ending response after stream failure', e);
+      }
+    }
       success: true,
-      data: resources,
-    });
-  } catch (error) {
+    console.error('downloadResource error', error);
     next(error);
-  }
-};
-
-export const getRecentResources = async (req, res, next) => {
-  try {
-    const resources = await Resource.find({ isApproved: true })
-      .sort({ createdAt: -1 })
-      .limit(20)
-      .populate('uploader', 'name avatar');
-
-    res.status(200).json({
-      success: true,
-      data: resources,
     });
   } catch (error) {
     next(error);
